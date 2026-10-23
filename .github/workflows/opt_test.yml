@@ -1,0 +1,39 @@
+name: option-data-test
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install yfinance pandas
+      - run: |
+          python - <<'EOF'
+          import yfinance as yf, pandas as pd
+          from datetime import date
+          pd.set_option("display.width", 200)
+          vix = yf.Ticker("^VIX").history(period="5d")
+          print("VIX last:", float(vix.Close.iloc[-1]))
+          for s in ["SPY", "QQQ"]:
+              t = yf.Ticker(s)
+              spot = float(t.history(period="5d").Close.iloc[-1])
+              exps = t.options
+              print("=====", s, "spot", spot, "expiries", len(exps))
+              today = date.today()
+              def pick(days):
+                  return min(exps, key=lambda e: abs((date.fromisoformat(e) - today).days - days))
+              for days in (7, 30, 40):
+                  e = pick(days)
+                  ch = t.option_chain(e)
+                  c = ch.calls
+                  row = c.iloc[(c.strike - spot).abs().argsort()[:1]]
+                  print("target", days, "d -> expiry", e, "DTE", (date.fromisoformat(e) - today).days)
+                  print(row[["strike", "bid", "ask", "lastPrice", "impliedVolatility", "openInterest", "volume"]].to_string())
+                  p = ch.puts
+                  low = p.iloc[(p.strike - spot * 0.93).abs().argsort()[:1]]
+                  print(low[["strike", "bid", "ask", "impliedVolatility", "openInterest"]].to_string())
+          EOF
